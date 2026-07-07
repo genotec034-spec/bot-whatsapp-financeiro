@@ -1,101 +1,68 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
+const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
-const pino = require('pino');
 const http = require('http');
 
 // Configurações das Variáveis de Ambiente
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
 
-// Mini-servidor HTTP para enganar o Render e não deixar o bot cair
+// Servidor HTTP obrigatório para o Render manter o bot vivo
 const port = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Bot Online\n');
-}).listen(port, () => console.log(`Servidor na porta ${port}`));
+    res.end('Telegram Bot Online\n');
+}).listen(port, () => console.log(`Servidor rodando na porta ${port}`));
 
-async function ligarBot() {
-    // Cria a pasta de sessão para salvar o login do WhatsApp
-    const { state, saveCreds } = await useMultiFileAuthState('pasta_sessao');
+// Inicializa o bot do Telegram
+const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
-    const sock = makeWASocket({
-        auth: state,
-        logger: pino({ level: 'silent' }),
-        printQRInTerminal: true, // Mostra o QR code nos Logs do Render
-        browser: ['Mac OS', 'Chrome', '124.0.0.0'] // 🌟 CORREÇÃO 1: Disfarça o bot como um navegador real para o WhatsApp não bloquear
-    });
+console.log("🚀 BOT DO TELEGRAM INICIADO COM SUCESSO!");
 
-    sock.ev.on('creds.update', saveCreds);
+bot.on('message', async (msg) => {
+    const chatId = msg.chat.id;
+    const texto = msg.text;
+    const nomeUsuario = msg.from.first_name || "Usuário";
 
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        
-        if (qr) {
-            console.log("=== ESCANEIE O QR CODE ABAIXO ===");
-            qrcode.generate(qr, { small: true });
-        }
+    // Ignora mensagens vazias ou de outros formatos (como fotos/áudios sem texto)
+    if (!texto) return;
 
-        if (connection === 'close') {
-            const deveReconectar = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (deveReconectar) {
-                console.log("⚠️ Conexão caiu. Tentando reconectar em 5 segundos...");
-                // 🌟 CORREÇÃO 2: Espera 5 segundos antes de tentar ligar de novo para evitar o loop infinito no Render
-                setTimeout(() => ligarBot(), 5000); 
-            }
-        } else if (connection === 'open') {
-            console.log("🚀 BOT CONECTADO COM SUCESSO NO WHATSAPP!");
-        }
-    });
+    // Comandos Iniciais
+    if (texto.toLowerCase() === '/start' || texto.toLowerCase() === 'oi') {
+        bot.sendMessage(chatId, `👋 Olá ${nomeUsuario}! Envie o seu lançamento que eu guardo na planilha.\n\n📝 *Exemplo:* Gastei 50 reais com mercado na conta Casa hoje`, { parse_mode: 'Markdown' });
+        return;
+    }
 
-    // Ouvir mensagens recebidas
-    sock.ev.on('messages.upsert', async (m) => {
-        if (m.type !== 'notify') return;
-        const msg = m.messages[0];
-        if (!msg.message || msg.key.fromMe) return;
+    try {
+        bot.sendMessage(chatId, "🤖 Processando com Inteligência Artificial...");
 
-        const deOnde = msg.key.remoteJid;
-        const texto = msg.message.conversation || msg.message.extendedTextMessage?.text;
-        const nomeUsuario = msg.pushName || "Cliente";
+        // 1. Enviar para o Gemini interpretar
+        const dadosPlanilha = await processarComGemini(texto);
 
-        if (!texto) return;
-
-        // Comandos Iniciais
-        if (texto.toLowerCase() === 'oi' || texto === '/start') {
-            await sock.sendMessage(deOnde, { text: `👋 Olá ${nomeUsuario}! Envie o seu lançamento que eu guardo na planilha.\n\nExemplo: Gastei 50 reais com mercado na conta Casa hoje` });
+        if (!dadosPlanilha || dadosPlanilha.erro) {
+            bot.sendMessage(chatId, "❌ Não entendi o formato. Envie o valor, a categoria e se foi na Loja ou Casa.");
             return;
         }
 
-        try {
-            await sock.sendMessage(deOnde, { text: "🤖 Processando com Inteligência Artificial..." });
+        // Adiciona o nome de quem enviou o lançamento
+        dadosPlanilha.usuario = nomeUsuario;
 
-            // 1. Enviar para o Gemini interpretar
-            const dadosPlanilha = await processarComGemini(texto);
+        // 2. Enviar os dados para a Planilha Google
+        const respostaGoogle = await axios.post(APPS_SCRIPT_URL, dadosPlanilha);
 
-            if (!dadosPlanilha || dadosPlanilha.erro) {
-                await sock.sendMessage(deOnde, { text: "❌ Não entendi o formato. Envie o valor, a categoria e se foi na Loja ou Casa." });
-                return;
-            }
-
-            // Adiciona o nome de quem enviou
-            dadosPlanilha.usuario = nomeUsuario;
-
-            // 2. Enviar os dados para a Planilha Google
-            const respostaGoogle = await axios.post(APPS_SCRIPT_URL, dadosPlanilha);
-
-            if (respostaGoogle.data === "OK") {
-                const sucesso = `✅ Lançamento Salvo!\n\n📅 Data: ${dadosPlanilha.data}\n🏦 Conta: ${dadosPlanilha.conta}\n📊 Tipo: ${dadosPlanilha.tipo}\n🏷️ Categoria: ${dadosPlanilha.categoria}\n📝 Descrição: ${dadosPlanilha.descricao}\n💰 Valor: R$ ${Number(dadosPlanilha.valor).toFixed(2)}`;
-                await sock.sendMessage(deOnde, { text: sucesso });
-            } else {
-                await sock.sendMessage(deOnde, { text: "⚠️ O Google respondeu, mas deu erro ao salvar." });
-            }
-
-        } catch (erro) {
-            await sock.sendMessage(deOnde, { text: "❌ Erro no servidor: " + erro.message });
+        if (respostaGoogle.data === "OK") {
+            const sucesso = `✅ *Lançamento Salvo!*\n\n📅 *Data:* ${dadosPlanilha.data}\n🏦 *Conta:* ${dadosPlanilha.conta}\n📊 *Tipo:* ${dadosPlanilha.tipo}\n🏷️ *Categoria:* ${dadosPlanilha.categoria}\n📝 *Descrição:* ${dadosPlanilha.descricao}\n💰 *Valor:* R$ ${Number(dadosPlanilha.valor).toFixed(2)}`;
+            bot.sendMessage(chatId, sucesso, { parse_mode: 'Markdown' });
+        } else {
+            bot.sendMessage(chatId, "⚠️ O Google respondeu, mas deu erro ao salvar na planilha.");
         }
-    });
-}
 
+    } catch (erro) {
+        bot.sendMessage(chatId, "❌ Erro no servidor: " + erro.message);
+    }
+});
+
+// Função que conversa com a IA Gemini
 async function processarComGemini(textoUsuario) {
     try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -115,5 +82,3 @@ async function processarComGemini(textoUsuario) {
         return { erro: true };
     }
 }
-
-ligarBot();
