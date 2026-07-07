@@ -61,10 +61,9 @@ bot.on('message', async (msg) => {
     }
 });
 
-// Função otimizada com Inteligência Artificial (Versão Estável v1)
+// Função com os parâmetros de formatação corrigidos para a API estável
 async function processarComGemini(textoUsuario) {
     try {
-        // 🌟 CORREÇÃO AQUI: Alterado de v1beta para v1 para evitar o erro 404
         const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
         const dataHoje = new Date().toISOString().split('T')[0];
 
@@ -82,8 +81,9 @@ async function processarComGemini(textoUsuario) {
 
         const resposta = await axios.post(url, { 
             contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-                responseMimeType: "application/json"
+            // 🌟 ALTERAÇÃO AQUI: Mudança para snake_case exigida pelo pacote HTTP do Google
+            generation_config: {
+                response_mime_type: "application/json"
             }
         });
 
