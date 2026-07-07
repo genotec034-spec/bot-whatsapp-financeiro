@@ -61,10 +61,11 @@ bot.on('message', async (msg) => {
     }
 });
 
-// Função otimizada com Inteligência Artificial
+// Função otimizada com Inteligência Artificial (Versão Estável v1)
 async function processarComGemini(textoUsuario) {
     try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        // 🌟 CORREÇÃO AQUI: Alterado de v1beta para v1 para evitar o erro 404
+        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
         const dataHoje = new Date().toISOString().split('T')[0];
 
         const prompt = `Transforme o texto de gastos/receitas do usuário em um objeto JSON organizado.\n` +
@@ -82,14 +83,13 @@ async function processarComGemini(textoUsuario) {
         const resposta = await axios.post(url, { 
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
-                responseMimeType: "application/json" // 🌟 Força o Gemini a responder APENAS o JSON limpo
+                responseMimeType: "application/json"
             }
         });
 
         const jsonTexto = resposta.data.candidates[0].content.parts[0].text.trim();
         return JSON.parse(jsonTexto);
     } catch (e) {
-        // 🌟 Registra o erro real nos logs do Render para sabermos se a chave API falhou
         console.error("❌ Erro na chamada do Gemini:", e.response?.data || e.message);
         return { erro: true };
     }
