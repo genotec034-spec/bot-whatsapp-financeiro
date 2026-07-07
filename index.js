@@ -46,7 +46,12 @@ bot.on('message', async (msg) => {
         const dadosPlanilha = resultadoGemini.dados;
         dadosPlanilha.usuario = nomeUsuario;
 
-        // 2. Enviar os dados para a Planilha Google usando FETCH nativo (Evita o erro doGet)
+        // 🔥 LINHA MÁGICA: Garante que o valor seja enviado como NÚMERO PURO (remove aspas de texto)
+        if (dadosPlanilha.valor) {
+            dadosPlanilha.valor = Number(dadosPlanilha.valor);
+        }
+
+        // 2. Enviar os dados para a Planilha Google usando FETCH nativo
         const respostaGoogle = await fetch(APPS_SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -79,7 +84,7 @@ Data de hoje como referência: ${dataHojeBR}
 
 REGRAS OBRIGATÓRIAS DE FORMATAÇÃO:
 1. data: Deve ser estritamente no formato brasileiro DD/MM/YYYY. Se o usuário falar "ontem", calcule a data de ontem baseado em hoje e converta para DD/MM/YYYY.
-2. valor: Deve ser um número decimal puro (ex: 35.00). SE O USUÁRIO ENVIAR UMA SOMA OU CÁLCULO (ex: "12 + 15", "10 reais e mais 5"), VOCÊ DEVE FAZER O CÁLCULO INSTANTANEAMENTE e retornar apenas o valor total somado.
+2. valor: Deve ser um número decimal puro (ex: 35.00). SE O USUÁRIO ENVIAR UMA SOMA OU CÁLCULO, FAÇA O CÁLCULO INSTANTANEAMENTE e retorne apenas o valor total somado. Não coloque aspas no valor.
 3. conta: "Loja" ou "Casa". Se o usuário não especificar, deduza pelo contexto.
 4. tipo: "Receita" ou "Despesa".
 5. categoria: Escolha estritamente entre: Alimentação, Mercado, Combustível, Loja, Sorvetes, Energia, Internet, Água, Aluguel, Salário, Pix, Outros.
