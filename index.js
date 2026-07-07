@@ -24,7 +24,6 @@ bot.on('message', async (msg) => {
     const texto = msg.text;
     const nomeUsuario = msg.from.first_name || "Usuário";
 
-    // Ignora mensagens vazias ou de outros formatos (como fotos/áudios sem texto)
     if (!texto) return;
 
     // Comandos Iniciais
@@ -58,27 +57,40 @@ bot.on('message', async (msg) => {
         }
 
     } catch (erro) {
-        bot.sendMessage(chatId, "❌ Erro no servidor: " + erro.message);
+        bot.sendMessage(chatId, "❌ Erro no servidor do bot: " + erro.message);
     }
 });
 
-// Função que conversa com a IA Gemini
+// Função otimizada com Inteligência Artificial
 async function processarComGemini(textoUsuario) {
     try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
         const dataHoje = new Date().toISOString().split('T')[0];
 
-        const prompt = `Transforme em JSON para o caixa da loja.\nTexto: "${textoUsuario}"\nData ref: ${dataHoje}\n\n` +
-          `Contas: "Loja" ou "Casa". Tipos: "Receita" ou "Despesa".\n` +
-          `Categorias: Alimentação, Mercado, Combustível, Loja, Sorvetes, Energia, Internet, Água, Aluguel, Salário, Pix, Outros.\n\n` +
-          `Retorne APENAS o JSON puro, sem markdown:\n` +
+        const prompt = `Transforme o texto de gastos/receitas do usuário em um objeto JSON organizado.\n` +
+          `Texto do usuário: "${textoUsuario}"\n` +
+          `Data de referência para hoje: ${dataHoje}\n\n` +
+          `Regras para os campos:\n` +
+          `- conta: obrigatoriamente "Loja" ou "Casa".\n` +
+          `- tipo: obrigatoriamente "Receita" ou "Despesa".\n` +
+          `- categoria: classifique estritamente como uma destas: Alimentação, Mercado, Combustível, Loja, Sorvetes, Energia, Internet, Água, Aluguel, Salário, Pix, Outros.\n` +
+          `- descricao: breve resumo do lançamento.\n` +
+          `- valor: número decimal puro.\n\n` +
+          `Siga exatamente esta estrutura:\n` +
           `{"data":"YYYY-MM-DD","conta":"Loja/Casa","tipo":"Receita/Despesa","categoria":"X","descricao":"X","valor":0.00}`;
 
-        const resposta = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] });
-        let jsonTexto = resposta.data.candidates[0].content.parts[0].text.trim();
-        jsonTexto = jsonTexto.replace(/```json|```/g, "").trim();
+        const resposta = await axios.post(url, { 
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+                responseMimeType: "application/json" // 🌟 Força o Gemini a responder APENAS o JSON limpo
+            }
+        });
+
+        const jsonTexto = resposta.data.candidates[0].content.parts[0].text.trim();
         return JSON.parse(jsonTexto);
     } catch (e) {
+        // 🌟 Registra o erro real nos logs do Render para sabermos se a chave API falhou
+        console.error("❌ Erro na chamada do Gemini:", e.response?.data || e.message);
         return { erro: true };
     }
 }
