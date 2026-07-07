@@ -22,7 +22,8 @@ async function ligarBot() {
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
-        printQRInTerminal: true // Mostra o QR code nos Logs do Render
+        printQRInTerminal: true, // Mostra o QR code nos Logs do Render
+        browser: ['Mac OS', 'Chrome', '124.0.0.0'] // 🌟 CORREÇÃO 1: Disfarça o bot como um navegador real para o WhatsApp não bloquear
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -38,8 +39,9 @@ async function ligarBot() {
         if (connection === 'close') {
             const deveReconectar = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
             if (deveReconectar) {
-                console.log("Conexão caiu. Tentando reconectar...");
-                ligarBot();
+                console.log("⚠️ Conexão caiu. Tentando reconectar em 5 segundos...");
+                // 🌟 CORREÇÃO 2: Espera 5 segundos antes de tentar ligar de novo para evitar o loop infinito no Render
+                setTimeout(() => ligarBot(), 5000); 
             }
         } else if (connection === 'open') {
             console.log("🚀 BOT CONECTADO COM SUCESSO NO WHATSAPP!");
