@@ -61,7 +61,7 @@ bot.on('message', async (msg) => {
     }
 });
 
-// Função adaptada: sem parâmetros problemáticos, tratamento direto no texto
+// Função com captura inteligente e robusta de dados
 async function processarComGemini(textoUsuario) {
     try {
         const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -76,18 +76,24 @@ async function processarComGemini(textoUsuario) {
           `- categoria: classifique estritamente como uma destas: Alimentação, Mercado, Combustível, Loja, Sorvetes, Energia, Internet, Água, Aluguel, Salário, Pix, Outros.\n` +
           `- descricao: breve resumo do lançamento.\n` +
           `- valor: número decimal puro.\n\n` +
-          `Siga exatamente esta estrutura (responda APENAS o JSON puro, sem formatação de markdown, sem crases e sem explicações):\n` +
+          `Siga exatamente esta estrutura:\n` +
           `{"data":"YYYY-MM-DD","conta":"Loja/Casa","tipo":"Receita/Despesa","categoria":"X","descricao":"X","valor":0.00}`;
 
-        // Envia apenas o conteúdo direto, eliminando o bloco generation_config que causava o erro 400
         const resposta = await axios.post(url, { 
             contents: [{ parts: [{ text: prompt }] }]
         });
 
         let jsonTexto = resposta.data.candidates[0].content.parts[0].text.trim();
         
-        // Remove de forma segura qualquer bloco de formatação de texto que o Gemini possa ter colocado por teimosia
-        jsonTexto = jsonTexto.replace(/```json/gi, '').replace(/```/g, '').trim();
+        // 🌟 FILTRO CIRÚRGICO: Localiza apenas o bloco que contém o JSON válido
+        const inicioJson = jsonTexto.indexOf('{');
+        const fimJson = jsonTexto.lastIndexOf('}');
+        
+        if (inicioJson !== -1 && fimJson !== -1) {
+            jsonTexto = jsonTexto.substring(inicioJson, fimJson + 1);
+        } else {
+            throw new Error("JSON puro não encontrado na resposta da IA");
+        }
         
         return JSON.parse(jsonTexto);
     } catch (e) {
