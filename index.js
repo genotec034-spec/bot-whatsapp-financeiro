@@ -36,14 +36,15 @@ bot.on('message', async (msg) => {
         bot.sendMessage(chatId, "🤖 Processando com Inteligência Artificial...");
 
         // 1. Enviar para o Gemini interpretar
-        const dadosPlanilha = await processarComGemini(texto);
+        const resultadoGemini = await processarComGemini(texto);
 
-        if (!dadosPlanilha || dadosPlanilha.erro) {
-            bot.sendMessage(chatId, "❌ Não entendi o formato. Envie o valor, a categoria e se foi na Loja ou Casa.");
+        // Se a IA falhar, ela vai trazer o motivo real para o Telegram
+        if (resultadoGemini.erro) {
+            bot.sendMessage(chatId, `❌ Erro na IA:\n\`${resultadoGemini.mensagem}\``, { parse_mode: 'Markdown' });
             return;
         }
 
-        // Adiciona o nome de quem enviou o lançamento
+        const dadosPlanilha = resultadoGemini.dados;
         dadosPlanilha.usuario = nomeUsuario;
 
         // 2. Enviar os dados para a Planilha Google
@@ -53,18 +54,19 @@ bot.on('message', async (msg) => {
             const sucesso = `✅ *Lançamento Salvo!*\n\n📅 *Data:* ${dadosPlanilha.data}\n🏦 *Conta:* ${dadosPlanilha.conta}\n📊 *Tipo:* ${dadosPlanilha.tipo}\n🏷️ *Categoria:* ${dadosPlanilha.categoria}\n📝 *Descrição:* ${dadosPlanilha.descricao}\n💰 *Valor:* R$ ${Number(dadosPlanilha.valor).toFixed(2)}`;
             bot.sendMessage(chatId, sucesso, { parse_mode: 'Markdown' });
         } else {
-            bot.sendMessage(chatId, "⚠️ O Google respondeu, mas deu erro ao salvar na planilha.");
+            bot.sendMessage(chatId, `⚠️ O script do Google respondeu, mas não retornou OK. Resposta: ${respostaGoogle.data}`);
         }
 
     } catch (erro) {
-        bot.sendMessage(chatId, "❌ Erro no servidor do bot: " + erro.message);
+        bot.sendMessage(chatId, "❌ Erro interno no servidor do bot: " + erro.message);
     }
 });
 
-// Função com captura inteligente e robusta de dados
+// Função com diagnóstico detalhado de erros
 async function processarComGemini(textoUsuario) {
     try {
-        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        // Atualizado para a versão estável do modelo 2.5
+        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
         const dataHoje = new Date().toISOString().split('T')[0];
 
         const prompt = `Transforme o texto de gastos/receitas do usuário em um objeto JSON organizado.\n` +
@@ -83,21 +85,27 @@ async function processarComGemini(textoUsuario) {
             contents: [{ parts: [{ text: prompt }] }]
         });
 
+        if (!resposta.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+            return { erro: true, mensagem: "O Google retornou uma estrutura vazia ou bloqueada por segurança." };
+        }
+
         let jsonTexto = resposta.data.candidates[0].content.parts[0].text.trim();
         
-        // 🌟 FILTRO CIRÚRGICO: Localiza apenas o bloco que contém o JSON válido
+        // Captura o JSON de forma isolada
         const inicioJson = jsonTexto.indexOf('{');
         const fimJson = jsonTexto.lastIndexOf('}');
         
         if (inicioJson !== -1 && fimJson !== -1) {
             jsonTexto = jsonTexto.substring(inicioJson, fimJson + 1);
+            const dados = JSON.parse(jsonTexto);
+            return { erro: false, dados: dados };
         } else {
-            throw new Error("JSON puro não encontrado na resposta da IA");
+            return { erro: true, mensagem: `O formato retornado não contém JSON válido: ${jsonTexto}` };
         }
-        
-        return JSON.parse(jsonTexto);
     } catch (e) {
-        console.error("❌ Erro na chamada do Gemini:", e.response?.data || e.message);
-        return { erro: true };
+        // Captura a mensagem real de erro enviada pelo servidor do Google
+        const mensagemErroReal = e.response?.data?.error?.message || e.message;
+        console.error("❌ Erro na chamada do Gemini:", mensagemErroReal);
+        return { erro: true, mensagem: mensagemErroReal };
     }
 }
